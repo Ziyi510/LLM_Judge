@@ -9,22 +9,6 @@ from typing import Dict, List, Tuple
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, Pipeline, pipeline
 
-# models
-Model_name = [
-    "Qwen/Qwen3-8B",
-    "meta-llama/Meta-Llama-3.1-8B-Instruct",
-    "mistral/Mistral-7B-Instruct-v0.2",
-    ]   
-import argparse
-import json
-import re
-from collections import defaultdict
-from pathlib import Path
-from typing import Dict, List, Tuple
-
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, Pipeline, pipeline
-
 # ---------------------------------------------------------------------------
 # MODELS
 # ---------------------------------------------------------------------------
