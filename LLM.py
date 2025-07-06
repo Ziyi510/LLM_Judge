@@ -209,18 +209,13 @@ def run(max_samples: int, split: str, out_path: Path):
     print(f"Results saved to {out_path.resolve()}")
 
 # ---------------------------------------------------------------------------
-# CLI
+# DIRECT EXECUTION
 # ---------------------------------------------------------------------------
 
-def cli():
-    p = argparse.ArgumentParser(description="3‑agent peer‑review on MedQA‑USMLE")
-    p.add_argument("--max_samples", type=int, default=20, help="limit Q count")
-    p.add_argument("--split", default="validation", help="dataset split")
-    p.add_argument("--out", default="peer_review_medqa.jsonl", help="output JSONL file")
-    args = p.parse_args()
-
-    run(args.max_samples, args.split, Path(args.out))
-
-
 if __name__ == "__main__":
-    cli()
+    # You can modify these parameters directly here
+    max_samples = 20  # limit number of questions
+    split = "validation"  # dataset split
+    out_path = Path("peer_review_medqa.jsonl")  # output file
+    
+    run(max_samples, split, out_path)
