@@ -23,8 +23,7 @@ model_qwen = AutoModelForCausalLM.from_pretrained(
     cache_dir="/scratch",
     torch_dtype = torch.bfloat16,
     # use_flash_attention_2=True,
-    # device_map = "auto",
-    device_map = {"": "cuda:0"},  # Use GPU 0 for Qwen
+    device_map = "auto",
 )
 
 tokenizer_llama = AutoTokenizer.from_pretrained(
@@ -38,8 +37,7 @@ model_llama = AutoModelForCausalLM.from_pretrained(
     cache_dir="/scratch",
     torch_dtype = torch.bfloat16,
     # use_flash_attention_2=True,
-    # device_map = "auto",
-    device_map = {"": "cuda:0"},  # Use GPU 0 for Llama
+    device_map = "auto",
 )
 
 tokenizer_mistral = AutoTokenizer.from_pretrained(
@@ -53,8 +51,7 @@ model_mistral = AutoModelForCausalLM.from_pretrained(
     cache_dir="/scratch",
     torch_dtype=torch.bfloat16,
     # use_flash_attention_2=True,
-    # device_map="auto",
-    device_map = {"": "cuda:0"},  # Use GPU 0 for Mistral
+    device_map="auto",
 )
 
 dataset = load_dataset("GBaker/MedQA-USMLE-4-options")
@@ -72,8 +69,6 @@ Options:
 {format_options(options)}
 
 You are a helpful medical assistant. select the BEST answer and generate the choice (A/B/C/D), then explain your reasoning.
-Follow the format strictly:
-<Choice>. Explanation: <your explanation here>
 """
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -118,16 +113,11 @@ def evaluate_answer_explanation(model, tokenizer, question, options, correct_ans
     """
     Evaluate the quality of answer and explanation on a 1-3 scale, and provide a confidence score (1-5)
     """
-    evaluation_prompt = f"""You are a helpful medical assistant and expert evaluator. 
-Strictly follow the evaluation rules below to rate the following answer and explanation for a medical question:
+    evaluation_prompt = f"""You are a helpful medical assistant and expert evaluator. Please rate the following answer and explanation for a medical question on a scale of 1-3 where:
 
-Evaluation rules:
-1. If the predicted answer is NOT the same as the correct answer, ALWAYS give a rating of 1, regardless of the explanation.
-2. If the predicted answer is correct BUT the explanation is wrong, incomplete, or does NOT logically support the answer, give a rating of 2.
-3. Only if BOTH the predicted answer is correct AND the explanation is clear, detailed, and accurately supports the answer, give a rating of 3.
-
-Do NOT give a rating of 2 or 3 to any answer that is not correct, even if the explanation seems plausible.
-If you are unsure, be conservative and use a lower rating.
+1 = Poor: Wrong answer and/or wrong explanation
+2 = Average: Correct answer but weak explanation
+3 = Excellent: Correct answer with clear, detailed, and accurate explanation
 
 In addition, provide your confidence in your rating on a scale of 1 (lowest confidence) to 5 (highest confidence).
 
@@ -141,13 +131,13 @@ Explanation: {explanation}
 
 Please provide:
 1. A rating from 1-3
-2. Your confidence in your rating (1-5)
-3. A brief justification for your rating
+2. A brief justification for your rating
+3. Your confidence in your rating (1-5)
 
 Format your answer as:
 Rating: <number>
-Confidence: <number>
 Justification: <text>
+Confidence: <number>
 """
 
     inputs = tokenizer(evaluation_prompt, return_tensors="pt").to(model.device)
@@ -385,6 +375,7 @@ def process_dataset_with_cross_reviews(models, tokenizers, model_names, data, ma
         time.sleep(0.2)
     return results
 
+# Comment out the old single-model evaluation block
 # print("Starting validation dataset processing with Qwen + llama evaluation...")
 # comprehensive_results = process_train_dataset_with_evaluation(
 #     model_qwen, 
