@@ -11,6 +11,7 @@ import os
 model_name_qwen = "Qwen/Qwen3-8B"
 model_name_llama = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 model_name_mistral = "mistralai/Mistral-7B-Instruct-v0.3"
+model_name_gemma = "google/gemma-7b-it"
 
 tokenizer_qwen = AutoTokenizer.from_pretrained(
     model_name_qwen,
@@ -23,7 +24,8 @@ model_qwen = AutoModelForCausalLM.from_pretrained(
     cache_dir="/scratch",
     torch_dtype = torch.bfloat16,
     # use_flash_attention_2=True,
-    device_map = "auto",
+    # device_map = "auto",
+    device_map = {"": "cuda:0"},  # Use GPU 0 for Qwen
 )
 
 tokenizer_llama = AutoTokenizer.from_pretrained(
@@ -37,7 +39,8 @@ model_llama = AutoModelForCausalLM.from_pretrained(
     cache_dir="/scratch",
     torch_dtype = torch.bfloat16,
     # use_flash_attention_2=True,
-    device_map = "auto",
+    # device_map = "auto",
+    device_map = {"": "cuda:1"},  # Use GPU 1 for Llama
 )
 
 tokenizer_mistral = AutoTokenizer.from_pretrained(
@@ -51,7 +54,21 @@ model_mistral = AutoModelForCausalLM.from_pretrained(
     cache_dir="/scratch",
     torch_dtype=torch.bfloat16,
     # use_flash_attention_2=True,
-    device_map="auto",
+    # device_map="auto",
+    device_map = {"": "cuda:2"},  # Use GPU 2 for Mistral
+)
+
+tokenizer_gemma = AutoTokenizer.from_pretrained(
+    model_name_gemma,
+    trust_remote_code=True,
+    cache_dir="/scratch"
+)
+
+model_gemma = AutoModelForCausalLM.from_pretrained(
+    model_name_gemma,
+    cache_dir="/scratch",
+    torch_dtype=torch.bfloat16,
+    device_map = {"": "cuda:3"},  # Use GPU 3 for Gemma
 )
 
 dataset = load_dataset("GBaker/MedQA-USMLE-4-options")
@@ -69,6 +86,8 @@ Options:
 {format_options(options)}
 
 You are a helpful medical assistant. select the BEST answer and generate the choice (A/B/C/D), then explain your reasoning.
+Follow the format strictly:
+<Choice>. Explanation: <your explanation here>
 """
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -113,11 +132,16 @@ def evaluate_answer_explanation(model, tokenizer, question, options, correct_ans
     """
     Evaluate the quality of answer and explanation on a 1-3 scale, and provide a confidence score (1-5)
     """
-    evaluation_prompt = f"""You are a helpful medical assistant and expert evaluator. Please rate the following answer and explanation for a medical question on a scale of 1-3 where:
+    evaluation_prompt = f"""You are a helpful medical assistant and expert evaluator. 
+Strictly follow the evaluation rules below to rate the following answer and explanation for a medical question:
 
-1 = Poor: Wrong answer and/or wrong explanation
-2 = Average: Correct answer but weak explanation
-3 = Excellent: Correct answer with clear, detailed, and accurate explanation
+Evaluation rules:
+1. If the predicted answer is NOT the same as the correct answer, ALWAYS give a rating of 1, regardless of the explanation.
+2. If the predicted answer is correct BUT the explanation is wrong, incomplete, or does NOT logically support the answer, give a rating of 2.
+3. Only if BOTH the predicted answer is correct AND the explanation is clear, detailed, and accurately supports the answer, give a rating of 3.
+
+Do NOT give a rating of 2 or 3 to any answer that is not correct, even if the explanation seems plausible.
+If you are unsure, be conservative and use a lower rating.
 
 In addition, provide your confidence in your rating on a scale of 1 (lowest confidence) to 5 (highest confidence).
 
@@ -131,13 +155,13 @@ Explanation: {explanation}
 
 Please provide:
 1. A rating from 1-3
-2. A brief justification for your rating
-3. Your confidence in your rating (1-5)
+2. Your confidence in your rating (1-5)
+3. A brief justification for your rating
 
 Format your answer as:
 Rating: <number>
-Justification: <text>
 Confidence: <number>
+Justification: <text>
 """
 
     inputs = tokenizer(evaluation_prompt, return_tensors="pt").to(model.device)
@@ -347,7 +371,7 @@ def cross_review_answers(models, tokenizers, model_names, question, options, cor
 def process_dataset_with_cross_reviews(models, tokenizers, model_names, data, max_samples=None):
     """
     For each sample, generate answers from all models and have each model review the others.
-    Returns a list of results with answers and cross-reviews.
+    Returns a list of results with answers, cross-reviews, and Gemma's contextual answer.
     """
     results = []
     if max_samples:
@@ -362,20 +386,62 @@ def process_dataset_with_cross_reviews(models, tokenizers, model_names, data, ma
         all_model_results = generate_answers_all_models(models, tokenizers, question, options, model_names)
         # Step 2: Cross-review
         cross_reviews = cross_review_answers(models, tokenizers, model_names, question, options, correct_answer, all_model_results)
-        # Store everything
+        # Step 3: Gemma generates answer with context
+        gemma_result = generate_gemma_with_context(model_gemma, tokenizer_gemma, question, options, all_model_results, cross_reviews)
+        # Store everything in the required format
         results.append({
             'sample_id': i,
             'question': question,
             'options': options,
             'correct_answer': correct_answer,
-            'model_answers': all_model_results,
-            'cross_reviews': cross_reviews
+            'model_answers': all_model_results,  # ans+explanation
+            'cross_reviews': cross_reviews,      # peer review
+            'gemma_result': gemma_result         # gemma result
         })
         print(f"  Done sample {i+1}")
         time.sleep(0.2)
     return results
 
-# Comment out the old single-model evaluation block
+def generate_gemma_with_context(model_gemma, tokenizer_gemma, question, options, all_model_results, cross_reviews):
+    """
+    Use Gemma to generate an answer+explanation, given the question, options, all previous model answers+explanations, and all reviews+confidences.
+    """
+    # Format previous answers and reviews
+    answers_section = ""
+    for model_name, result in all_model_results.items():
+        answers_section += f"Model: {model_name}\nAnswer: {result['answer_choice']}\nExplanation: {result['explanation']}\n\n"
+    reviews_section = ""
+    for submitter, reviewers in cross_reviews.items():
+        for reviewer, review in reviewers.items():
+            reviews_section += f"Reviewer: {reviewer} reviewing {submitter}\nRating: {review.get('rating')}\nConfidence: {review.get('confidence')}\nJustification: {review.get('justification')}\n\n"
+    prompt = f"""You are a helpful medical assistant. Here is a question and its options, along with answers and explanations from several models, and reviews of those answers by other models.\n\nQuestion: {question}\nOptions:\n{format_options(options)}\n\nPrevious Model Answers and Explanations:\n{answers_section}\nReviews of Answers:\n{reviews_section}\n\nBased on all the above information, select the BEST answer and generate the choice (A/B/C/D), then explain your reasoning.\nFollow the format strictly:\n<Choice>. Explanation: <your explanation here>\n"""
+    inputs = tokenizer_gemma(prompt, return_tensors="pt").to(model_gemma.device)
+    with torch.no_grad():
+        outputs = model_gemma.generate(
+            **inputs,
+            max_new_tokens=256,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.95,
+            eos_token_id=tokenizer_gemma.eos_token_id,
+            pad_token_id=tokenizer_gemma.eos_token_id
+        )
+    generated_text = tokenizer_gemma.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+    answer_choice = None
+    explanation = ""
+    answer_match = re.search(r'\b([ABCD])\b', generated_text, re.IGNORECASE)
+    if answer_match:
+        answer_choice = answer_match.group(1).upper()
+    if answer_choice:
+        explanation_start = generated_text.find(answer_choice) + 1
+        explanation = generated_text[explanation_start:].strip()
+        explanation = re.sub(r'^[.:\s]+', '', explanation)
+    return {
+        'answer_choice': answer_choice,
+        'explanation': explanation,
+        'full_response': generated_text
+    }
+
 # print("Starting validation dataset processing with Qwen + llama evaluation...")
 # comprehensive_results = process_train_dataset_with_evaluation(
 #     model_qwen, 

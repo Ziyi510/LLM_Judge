@@ -39,7 +39,7 @@ model_llama = AutoModelForCausalLM.from_pretrained(
     torch_dtype = torch.bfloat16,
     # use_flash_attention_2=True,
     # device_map = "auto",
-    device_map = {"": "cuda:0"},  # Use GPU 0 for Llama
+    device_map = {"": "cuda:1"},  # Use GPU 1 for Llama
 )
 
 tokenizer_mistral = AutoTokenizer.from_pretrained(
@@ -54,7 +54,7 @@ model_mistral = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.bfloat16,
     # use_flash_attention_2=True,
     # device_map="auto",
-    device_map = {"": "cuda:0"},  # Use GPU 0 for Mistral
+    device_map = {"": "cuda:2"},  # Use GPU 2 for Mistral
 )
 
 dataset = load_dataset("GBaker/MedQA-USMLE-4-options")
