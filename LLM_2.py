@@ -149,7 +149,6 @@ Question: {question}
 Options:
 {format_options(options)}
 
-Correct Answer: {correct_answer}
 Predicted Answer: {predicted_answer}
 Explanation: {explanation}
 
@@ -404,7 +403,7 @@ def process_dataset_with_cross_reviews(models, tokenizers, model_names, data, ma
 
 def generate_gemma_with_context(model_gemma, tokenizer_gemma, question, options, all_model_results, cross_reviews):
     """
-    Use Gemma to generate an answer+explanation, given the question, options, all previous model answers+explanations, and all reviews+confidences.
+    Use Gemma to generate an answer+explanation, given the question, options, all previous model answers+explanations, and all reviews+confidences. Do NOT provide the correct answer.
     """
     # Format previous answers and reviews
     answers_section = ""
@@ -414,7 +413,18 @@ def generate_gemma_with_context(model_gemma, tokenizer_gemma, question, options,
     for submitter, reviewers in cross_reviews.items():
         for reviewer, review in reviewers.items():
             reviews_section += f"Reviewer: {reviewer} reviewing {submitter}\nRating: {review.get('rating')}\nConfidence: {review.get('confidence')}\nJustification: {review.get('justification')}\n\n"
-    prompt = f"""You are a helpful medical assistant. Here is a question and its options, along with answers and explanations from several models, and reviews of those answers by other models.\n\nQuestion: {question}\nOptions:\n{format_options(options)}\n\nPrevious Model Answers and Explanations:\n{answers_section}\nReviews of Answers:\n{reviews_section}\n\nBased on all the above information, select the BEST answer and generate the choice (A/B/C/D), then explain your reasoning.\nFollow the format strictly:\n<Choice>. Explanation: <your explanation here>\n"""
+    prompt = (
+        "You are a helpful medical assistant.\n"
+        "Here is a question and its options.\n"
+        f"Question: {question}\n"
+        f"Options:\n{format_options(options)}\n"
+        "\nPrevious Model Answers and Explanations:\n"
+        f"{answers_section}"
+        "\nReviews of Answers:\n"
+        f"{reviews_section}"
+        "\nBased on all the above information, select the BEST answer and generate the choice (A/B/C/D), then explain your reasoning.\n"
+        "Follow the format strictly:\n<Choice>. Explanation: <your explanation here>\n"
+    )
     inputs = tokenizer_gemma(prompt, return_tensors="pt").to(model_gemma.device)
     with torch.no_grad():
         outputs = model_gemma.generate(

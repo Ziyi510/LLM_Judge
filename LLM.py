@@ -135,7 +135,6 @@ Question: {question}
 Options:
 {format_options(options)}
 
-Correct Answer: {correct_answer}
 Predicted Answer: {predicted_answer}
 Explanation: {explanation}
 
